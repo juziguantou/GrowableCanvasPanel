@@ -1,0 +1,22 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{52CA9357-4347-5894-293C-3EA43BFA3F11}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "MyShooting",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "Aaaaa",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"CoreUObject",
+				"UMG"
+			]
+		}
+	]
+}

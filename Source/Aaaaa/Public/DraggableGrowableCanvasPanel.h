@@ -24,13 +24,17 @@ public:
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseWheel(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+private:
+	FMargin GetActualOffset(float Left, float Top, float Right, float Bottom, FVector2D RenderTransformScale);
 
 private:
 	bool bIsPressing = false;//是否正在按下
 	bool bIsDragging = false;//是否正在拖动
-	FVector2D PressStartLocation;//按下开始位置
-	FMargin CanvasPanelStartOffsets;//CanvasPanel按下开始偏移
+	FVector2D PressLastLocation;//按下上一次位置
+	FMargin CanvasPanelLastOffsets;//CanvasPanel按下开始偏移
 	//FVector2D CanvasPanelStartLocation;//CanvasPanel按下开始位置
+	FVector2D CanvasPanelSize;
 
 
 	TWeakObjectPtr<UCanvasPanel> DraggableGrowableCanvasPanel;
