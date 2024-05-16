@@ -82,6 +82,10 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseButtonUp(const FGeometr
 		else {//如果没有拖动，就视为点击
 			const FGeometry& CanvasPanelGeometry = DraggableGrowableCanvasPanel->GetCachedGeometry();
 			FVector2D LocalPosition = CanvasPanelGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
+			FVector2D Size = CanvasPanelGeometry.GetLocalSize();
+			UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::NativeOnMouseButtonUp2.1 X = %f, Y = %f"), LocalPosition.X, LocalPosition.Y);
+			UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::NativeOnMouseButtonUp2.2 X = %f, Y = %f"), Size.X, Size.Y);
+			LocalPosition -= Size / 2;
 			AddDraggableGrowableItemToCanvas(UDraggableGrowableItemWidget::StaticClass(), LocalPosition);
 		}
 		ActiveItemWidget = nullptr;
@@ -97,15 +101,19 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove(const FGeometry& I
 {
 	if (bIsPressing)
 	{
-		bIsDragging = true;
 		FVector2D Delta = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition()) - PressLastLocation;
+		if (!bIsDragging && Delta.Size() < 1.f) {
+			return FReply::Handled();;
+		}
+		bIsDragging = true;
 		PressLastLocation = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
 		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove1 Delta x= %f, y= %f"), Delta.X, Delta.Y);
 		if (IsActiveItem) {//如果有活动的item，就移动item
 			if (ActiveItemWidget.IsValid()) {
 				UCanvasPanelSlot* ActiveWidgetSlot = Cast<UCanvasPanelSlot>(ActiveItemWidget->Slot);
 				if (ActiveWidgetSlot) {
-					FVector2D NewPosition = ActiveWidgetLocation + Delta;
+					FVector2D Scale = DraggableGrowableCanvasPanel->RenderTransform.Scale;
+					FVector2D NewPosition = ActiveWidgetLocation + Delta / Scale;
 					ActiveWidgetSlot->SetPosition(NewPosition);
 					ActiveWidgetLocation = NewPosition;
 				}
@@ -225,16 +233,17 @@ bool UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas(TSubc
 			UCanvasPanelSlot* CanvasPanelSlot = Cast<UCanvasPanelSlot>(DraggableGrowableCanvasPanel->Slot);
 			if (CanvasPanelSlot)
 			{
-				//FMargin Offsets = CanvasPanelSlot->GetOffsets();
-				//LocalPosition = FVector2D(LocalPosition.X - Offsets.Left, LocalPosition.Y - Offsets.Top);//根据CanvasPane偏移转化坐标
-				//FVector2D Scale = DraggableGrowableCanvasPanel->RenderTransform.Scale;
-				//UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas2.1 X = %f, Y = %f"), LocalPosition.X, LocalPosition.Y);
-				//UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas2.2 X = %f, Y = %f"), Scale.X, Scale.Y);
-				//UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas2.3 X = %f, Y = %f"), Offsets.Left, Offsets.Top);
-				//LocalPosition = LocalPosition * Scale;
 				// 设置Widget的位置
+				//FVector2D Size = Slot->GetSize();
+				FMargin Offsets = CanvasPanelSlot->GetOffsets();
+				//LocalPosition -= Size / 2;
+				Slot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+				Slot->SetAlignment({ 0.5f, 0.5f });
+				//FVector2D Alignment = Slot->GetAlignment();
+				//UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas2 X = %f, Y = %f"), Alignment.X, Alignment.Y);
 				Slot->SetPosition(LocalPosition);
 				ResizeCanvasPanel(LocalPosition);
+				
 			}
 		}
 		ItemWidget->DraggableGrowableCanvasPanel = this;
@@ -267,64 +276,38 @@ void UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel(FVector2D Location)
 	if (CanvasPanelSlot)
 	{
 		FMargin Offsets = CanvasPanelSlot->GetOffsets();
-		FVector2D OffsetPosition{0,0};
 		FVector2D Scale = DraggableGrowableCanvasPanel->RenderTransform.Scale;
 		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel1.1  X = %f, Y = %f, X = %f, Y = %f"), Location.X, Location.Y, Scale.X, Scale.Y);
 		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel1.2  Left = %f, Right = %f, Top = %f, Bottom = %f"), Offsets.Left, Offsets.Right, Offsets.Top, Offsets.Bottom);
-		FMargin ActualOffset = GetActualOffset(Offsets.Left, Offsets.Top, Offsets.Right, Offsets.Bottom, Scale);
-		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel1.3  Left = %f, Right = %f, Top = %f, Bottom = %f"), ActualOffset.Left, ActualOffset.Right, ActualOffset.Top, ActualOffset.Bottom);
-		if (Location.X < CanvasPanelSize.X) {
+		if (Location.X < Offsets.Left - CanvasPanelSize.X / 2 + CanvasPanelSize.X) {//x是负的，偏移增加是负的，左边偏移+屏幕一半-边界范围
 			UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel3.1"));
-			float OffsetX = CanvasPanelSize.X - Location.X;
-			float OldLeft = Offsets.Left;
-			float DGCanvasPanelSizeX = CanvasPanelSize.X - Offsets.Left - Offsets.Right;//先算出无限画布的宽
-			Offsets.Right = (DGCanvasPanelSizeX + OffsetX) * (Scale.X - 1) / 2 + ActualOffset.Right;//宽度增加，保持实际右偏移不变，算出缩放前右偏移
-			Offsets.Left = CanvasPanelSize.X - Offsets.Right - (DGCanvasPanelSizeX + OffsetX);
-			OffsetPosition.X = OldLeft - Offsets.Left;
+			float OffsetX = CanvasPanelSize.X / 2 + Location.X - CanvasPanelSize.X;
+			Offsets.Left += OffsetX;
+			Offsets.Right += OffsetX;
 		}
 		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel1.4  Left = %f, Right = %f, Top = %f, Bottom = %f"), Offsets.Left, Offsets.Right, Offsets.Top, Offsets.Bottom);
-		if (Location.Y < CanvasPanelSize.Y) {
+		if (Location.Y < Offsets.Top - CanvasPanelSize.Y / 2 + CanvasPanelSize.Y) {
 			UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel3.2"));
-			float OffsetY = CanvasPanelSize.Y - Location.Y;
-			float OldTop = Offsets.Top;
-			float DGCanvasPanelSizeY = CanvasPanelSize.Y - Offsets.Top - Offsets.Bottom + OffsetY;
-			Offsets.Bottom = DGCanvasPanelSizeY * (Scale.Y - 1) / 2 + ActualOffset.Bottom;
-			Offsets.Top = CanvasPanelSize.Y - Offsets.Bottom - DGCanvasPanelSizeY;
-			OffsetPosition.Y = OldTop - Offsets.Top;
+			float OffsetY = CanvasPanelSize.Y / 2 + Location.Y - CanvasPanelSize.Y;
+			Offsets.Top += OffsetY;
+			Offsets.Bottom += OffsetY;
 		}
 		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel1.5  Left = %f, Right = %f, Top = %f, Bottom = %f"), Offsets.Left, Offsets.Right, Offsets.Top, Offsets.Bottom);
-		if (Location.X > -Offsets.Right - Offsets.Left - CanvasPanelSize.X) {//向外扩展都是负的
+		if (-Location.X < Offsets.Right - CanvasPanelSize.X / 2 + CanvasPanelSize.X) {//向外扩展都是负的
 			UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel3.3"));
-			float OffsetX = Location.X + CanvasPanelSize.X + Offsets.Right + Offsets.Left;
-			float DGCanvasPanelSizeX = CanvasPanelSize.X - Offsets.Left - Offsets.Right + OffsetX;//先算出增加后的宽
-			Offsets.Left = DGCanvasPanelSizeX * (Scale.X - 1) / 2 + ActualOffset.Left;//保持实际左偏移不变，算出缩放前左偏移
-			Offsets.Right = CanvasPanelSize.X - Offsets.Left - DGCanvasPanelSizeX;
+			float OffsetX = Location.X - CanvasPanelSize.X / 2 + CanvasPanelSize.X;
+			Offsets.Left -= OffsetX;
+			Offsets.Right -= OffsetX;
 		}
 		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel1.6  Left = %f, Right = %f, Top = %f, Bottom = %f"), Offsets.Left, Offsets.Right, Offsets.Top, Offsets.Bottom);
-		if (Location.Y > - Offsets.Bottom - Offsets.Top - CanvasPanelSize.Y) {
+		if (-Location.Y < Offsets.Bottom - CanvasPanelSize.Y / 2 + CanvasPanelSize.Y) {
 			UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel3.4"));
-			float OffsetY = Location.Y + CanvasPanelSize.Y + Offsets.Bottom + Offsets.Top;
-			float DGCanvasPanelSizeY = CanvasPanelSize.Y - Offsets.Top - Offsets.Bottom + OffsetY;
-			Offsets.Top = DGCanvasPanelSizeY * (Scale.Y - 1) / 2 + ActualOffset.Top;
-			Offsets.Bottom = CanvasPanelSize.Y - Offsets.Top - DGCanvasPanelSizeY;
+			float OffsetY = Location.Y - CanvasPanelSize.Y / 2 + CanvasPanelSize.Y;
+			Offsets.Top -= OffsetY;
+			Offsets.Bottom -= OffsetY;
 		}
 		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel1.7  Left = %f, Right = %f, Top = %f, Bottom = %f"), Offsets.Left, Offsets.Right, Offsets.Top, Offsets.Bottom);
 		CanvasPanelSlot->SetOffsets(Offsets);
-		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel3.2  Left = %f, Right = %f, RenderTransformScale.X = %f, Y = %f"), Scale.X, Scale.Y, OffsetPosition.X, OffsetPosition.Y);
-		OffsetPosition *= Scale;
-		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::ResizeCanvasPanel3.3  Left = %f, Right = %f, "), OffsetPosition.X, OffsetPosition.Y);
 
-		if (OffsetPosition.X != 0.f || OffsetPosition.Y != 0.f) {
-			//所有item集体偏移
-			for(auto ItemWidget : ItemWidgets)
-			{
-				if (ItemWidget.IsValid()) {
-					UCanvasPanelSlot* ItemWidgetSlot = Cast<UCanvasPanelSlot>(ItemWidget->Slot);
-					if (ItemWidgetSlot) {
-						ItemWidgetSlot->SetPosition(ItemWidgetSlot->GetPosition() + OffsetPosition);
-					}
-				}
-			}
-		}
 	}
 }
