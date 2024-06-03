@@ -15,7 +15,6 @@ class AAAAA_API UDraggableGrowableCanvasPanelWidget : public UUserWidget
 {
 	GENERATED_BODY()
 	
-
 public:
 	UDraggableGrowableCanvasPanelWidget(const FObjectInitializer& ObjectInitializer);
 	
@@ -27,8 +26,11 @@ public:
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseWheel(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
-	bool AddDraggableGrowableItemToCanvas(TSubclassOf<UDraggableGrowableItemWidget>  DraggableGrowableItem, FVector2D LocalPosition);
-	void SetActiveItemWidget(TWeakObjectPtr<UDraggableGrowableItemWidget> ActiveItemWidget);//设置活动item，需要在鼠标按下时设置,鼠标抬起时会自动清除
+	bool AddDraggableGrowableItemToCanvas(TSubclassOf<UDraggableGrowableItemWidget>  DraggableGrowableItemClass, FVector2D LocalPosition);
+	//设置活动item，需要在鼠标按下时设置,鼠标抬起时会自动清除
+	void SetActiveItemWidget(TWeakObjectPtr<UDraggableGrowableItemWidget> ActiveItemWidgetPtr);
+	//返回无限画布的大小
+	FVector2D GetDGCanvasPanelSize();
 private:
 	FMargin GetActualOffset(float Left, float Top, float Right, float Bottom, FVector2D RenderTransformScale);
 	void ResizeCanvasPanel(FVector2D Location);//扩容
@@ -40,10 +42,10 @@ private:
 	FVector2D ActiveWidgetLocation;//ActiveItem按下开始位置
 	FVector2D CanvasPanelSize;//实际ui界面的大小
 
-	TWeakObjectPtr<UDraggableGrowableItemWidget> ActiveItemWidget;//正在活动的item
+	TWeakObjectPtr<UDraggableGrowableItemWidget> ActiveItemWidgetPtr;//正在活动的item
 	bool IsActiveItem;//是否有活动的item
 
-	TArray<TWeakObjectPtr<UDraggableGrowableItemWidget>> ItemWidgets;
+	TArray<TWeakObjectPtr<UDraggableGrowableItemWidget>> ItemWidgetPtrs;
 
 public:
 	TWeakObjectPtr<UCanvasPanel> DraggableGrowableCanvasPanel;

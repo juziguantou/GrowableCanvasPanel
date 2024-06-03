@@ -43,9 +43,10 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseButtonDown(const FGeome
 		bIsPressing = true;
 		PressLastLocation = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
 		if (IsActiveItem) {
-			if (ActiveItemWidget.IsValid()) {
-				UCanvasPanelSlot* ActiveWidgetSlot = Cast<UCanvasPanelSlot>(ActiveItemWidget->Slot);
+			if (ActiveItemWidgetPtr.IsValid()) {
+				UCanvasPanelSlot* ActiveWidgetSlot = Cast<UCanvasPanelSlot>(ActiveItemWidgetPtr->Slot);
 				ActiveWidgetLocation = ActiveWidgetSlot->GetPosition();
+
 			}
 		}
 		else {
@@ -70,11 +71,19 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseButtonUp(const FGeometr
 		if (bIsDragging) {
 			bIsDragging = false;
 			if (IsActiveItem) {
-				if (ActiveItemWidget.IsValid()) {
-					UCanvasPanelSlot* ActiveWidgetSlot = Cast<UCanvasPanelSlot>(ActiveItemWidget->Slot);
+				if (ActiveItemWidgetPtr.IsValid()) {
+					UCanvasPanelSlot* ActiveWidgetSlot = Cast<UCanvasPanelSlot>(ActiveItemWidgetPtr->Slot);
 					if (ActiveWidgetSlot) {
 						FVector2D LocalPosition = ActiveWidgetSlot->GetPosition();
 						ResizeCanvasPanel(LocalPosition);
+
+						//检测重叠完成
+						//LocalPosition -= ActiveWidgetSlot->GetSize() / 2;//中心对齐的item算出左上角的坐标
+						for (auto ItemWidgetPtr : ItemWidgetPtrs) {
+							if (ItemWidgetPtr != ActiveItemWidgetPtr) {
+								ItemWidgetPtr->OverlapCompletion(ActiveItemWidgetPtr->OverlapType, LocalPosition, ActiveItemWidgetPtr.Get());
+							}
+						}
 					}
 				}
 			}
@@ -88,7 +97,9 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseButtonUp(const FGeometr
 			LocalPosition -= Size / 2;
 			AddDraggableGrowableItemToCanvas(UDraggableGrowableItemWidget::StaticClass(), LocalPosition);
 		}
-		ActiveItemWidget = nullptr;
+
+		//还原
+		ActiveItemWidgetPtr = nullptr;
 		IsActiveItem = false;
 		bIsPressing = false;
 		return FReply::Handled().ReleaseMouseCapture();//释放鼠标输入
@@ -102,20 +113,43 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove(const FGeometry& I
 	if (bIsPressing)
 	{
 		FVector2D Delta = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition()) - PressLastLocation;
-		if (!bIsDragging && Delta.Size() < 1.f) {
+		if (!bIsDragging && Delta.Size() < 1.f) {//检测移动距离超过才视为拖动
 			return FReply::Handled();;
 		}
-		bIsDragging = true;
 		PressLastLocation = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
-		UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove1 Delta x= %f, y= %f"), Delta.X, Delta.Y);
+		//UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove1 Delta x= %f, y= %f"), Delta.X, Delta.Y);
 		if (IsActiveItem) {//如果有活动的item，就移动item
-			if (ActiveItemWidget.IsValid()) {
-				UCanvasPanelSlot* ActiveWidgetSlot = Cast<UCanvasPanelSlot>(ActiveItemWidget->Slot);
+			if (ActiveItemWidgetPtr.IsValid()) {
+				UCanvasPanelSlot* ActiveWidgetSlot = Cast<UCanvasPanelSlot>(ActiveItemWidgetPtr->Slot);
 				if (ActiveWidgetSlot) {
+					if (!bIsDragging) {//bIsDragging为false说明第一次进入拖动
+						for (auto& ItemWidgetPtr : ItemWidgetPtrs) {
+							if (ItemWidgetPtr != ActiveItemWidgetPtr) {
+								ItemWidgetPtr->OverlapInit();
+							}
+						}
+						UCanvasPanelSlot* RetSlot = ActiveItemWidgetPtr->DraggedToCanvas(ActiveWidgetLocation);//第一次拖动会改变Item的Slot和位置
+						if (RetSlot) {
+							ActiveWidgetSlot = RetSlot;
+						}
+					}
+					//UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove2 Delta x= %f, y= %f"), ActiveWidgetLocation.X, ActiveWidgetLocation.Y);
+
 					FVector2D Scale = DraggableGrowableCanvasPanel->RenderTransform.Scale;
 					FVector2D NewPosition = ActiveWidgetLocation + Delta / Scale;
 					ActiveWidgetSlot->SetPosition(NewPosition);
 					ActiveWidgetLocation = NewPosition;
+
+					//检测重叠
+					//NewPosition -= ActiveWidgetSlot->GetSize() / 2;//中心对齐的item算出左上角的坐标
+					for (auto& ItemWidgetPtr : ItemWidgetPtrs) {
+						if (ItemWidgetPtr != ActiveItemWidgetPtr) {
+							bool IsOverlap = ItemWidgetPtr->OverlapCheck(ActiveItemWidgetPtr->OverlapType, NewPosition, ActiveItemWidgetPtr.Get());
+							if (IsOverlap) {
+								break;
+							}
+						}
+					}
 				}
 			}
 		}
@@ -139,6 +173,7 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove(const FGeometry& I
 				Bottom = CanvasPanelLastOffsets.Bottom;
 			}
 
+
 			//设置新的偏移位置
 			UCanvasPanelSlot* CanvasPanelSlot = Cast<UCanvasPanelSlot>(DraggableGrowableCanvasPanel->Slot);
 			if (CanvasPanelSlot)
@@ -150,6 +185,7 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove(const FGeometry& I
 				UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::NativeOnMouseMove3 SlateVisibility= %d"), static_cast<uint8>(SlateVisibility));
 			}
 		}
+		bIsDragging = true;//标记改变
 	}
 
 	return FReply::Handled();
@@ -216,45 +252,60 @@ FReply UDraggableGrowableCanvasPanelWidget::NativeOnMouseWheel(const FGeometry &
 	return FReply::Handled();
 }
 
-bool UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas(TSubclassOf<UDraggableGrowableItemWidget> DraggableGrowableItem, FVector2D LocalPosition)
+bool UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas(TSubclassOf<UDraggableGrowableItemWidget> DraggableGrowableItemClass, FVector2D LocalPosition)
 {
 	UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas X = %f, Y = %f"), LocalPosition.X, LocalPosition.Y);
 	// 在这里创建你的UserWidget
 	FString DraggableGrowableItemClassPath = "/Game/UI/BPDraggableGrowableItem.BPDraggableGrowableItem_C";
-	UClass* DraggableGrowableItemClass = LoadClass<UDraggableGrowableItemWidget>(nullptr, *DraggableGrowableItemClassPath);
-	UDraggableGrowableItemWidget* ItemWidget = CreateWidget<UDraggableGrowableItemWidget>(GetWorld(), DraggableGrowableItemClass);
+	UClass* DraggableGrowableItemClass2 = LoadClass<UDraggableGrowableItemWidget>(nullptr, *DraggableGrowableItemClassPath);
+	UDraggableGrowableItemWidget* ItemWidget = CreateWidget<UDraggableGrowableItemWidget>(GetWorld(), DraggableGrowableItemClass2);
 	if (ItemWidget)
 	{
 		// 添加到CanvasPanel中
 		UCanvasPanelSlot* Slot = DraggableGrowableCanvasPanel->AddChildToCanvas(ItemWidget);
 		if (Slot)
 		{
-			ItemWidgets.Add(ItemWidget);
+			ItemWidgetPtrs.Add(ItemWidget);
 			UCanvasPanelSlot* CanvasPanelSlot = Cast<UCanvasPanelSlot>(DraggableGrowableCanvasPanel->Slot);
 			if (CanvasPanelSlot)
 			{
-				// 设置Widget的位置
-				//FVector2D Size = Slot->GetSize();
-				FMargin Offsets = CanvasPanelSlot->GetOffsets();
-				//LocalPosition -= Size / 2;
+				// 设置大小和锚点，如果可视大小小于实际大小，会被渲染优化不显示
+				ItemWidget->ResetDGItemSize();
+				FVector2D Size = ItemWidget->VisualSize;
+				//FMargin Offsets = CanvasPanelSlot->GetOffsets();
+				LocalPosition -= Size / 2;//设置中心点到鼠标的位置
 				Slot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
-				Slot->SetAlignment({ 0.5f, 0.5f });
+				//Slot->bAutoSize = true;
+				//Slot->SetAlignment({ 0.5f, 0.5f });
 				//FVector2D Alignment = Slot->GetAlignment();
 				//UE_LOG(LogTemp, Warning, TEXT("UDraggableGrowableCanvasPanelWidget::AddDraggableGrowableItemToCanvas2 X = %f, Y = %f"), Alignment.X, Alignment.Y);
+
+				// 设置Widget的位置
 				Slot->SetPosition(LocalPosition);
 				ResizeCanvasPanel(LocalPosition);
 				
 			}
 		}
-		ItemWidget->DraggableGrowableCanvasPanel = this;
+		ItemWidget->DGCanvasPanelWidgetPtr = this;
 	}
 	return true;
 }
 
-void UDraggableGrowableCanvasPanelWidget::SetActiveItemWidget(TWeakObjectPtr<UDraggableGrowableItemWidget> ActiveItemWidget)
+void UDraggableGrowableCanvasPanelWidget::SetActiveItemWidget(TWeakObjectPtr<UDraggableGrowableItemWidget> ActiveItemWidgetPtr)
 {
-	this->ActiveItemWidget = ActiveItemWidget;
-	IsActiveItem = true;
+	if (this->ActiveItemWidgetPtr == nullptr) {
+		this->ActiveItemWidgetPtr = ActiveItemWidgetPtr;
+		IsActiveItem = true;
+	}
+}
+
+FVector2D UDraggableGrowableCanvasPanelWidget::GetDGCanvasPanelSize()
+{
+	UCanvasPanelSlot* CanvasPanelSlot = Cast<UCanvasPanelSlot>(DraggableGrowableCanvasPanel->Slot);
+	FMargin Offsets = CanvasPanelSlot->GetOffsets();
+	float X = CanvasPanelSize.X - Offsets.Left - Offsets.Right;
+	float Y = CanvasPanelSize.Y - Offsets.Top - Offsets.Bottom;
+	return FVector2D(X, Y);
 }
 
 FMargin UDraggableGrowableCanvasPanelWidget::GetActualOffset(float Left, float Top, float Right, float Bottom, FVector2D RenderTransformScale)
